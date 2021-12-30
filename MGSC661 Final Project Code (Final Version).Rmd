@@ -1,0 +1,714 @@
+---
+title: "MGSC661 Final Project Code"
+output: html_notebook
+---
+```{r}
+library(randomForest)
+library(dplyr)
+library(earth)
+library(party)
+library(e1071)
+library(reshape2)
+library(corrplot)
+library(ggplot2)
+library(Hmisc)
+library(ggpubr)
+library(stargazer)
+library(Boruta)
+library(car)
+library(gbm)
+require(caTools)
+library(ggfortify)
+library(lmtest)
+library(caret)
+library(pROC)
+library(stargazer)
+library(InformationValue)
+
+```
+
+# 1. Data preprocessing
+
+```{r}
+Protein = Protein_Supply_Quantity_Data
+attach(Protein)
+```
+
+## 1.1 check missing values
+```{r}
+colSums(is.na(Protein))
+```
+
+```{r}
+install.packages("VIM")
+library(VIM)
+```
+
+## 1.2 visualize missing values
+```{r}
+pattern <- aggr(Protein, col=c('chartreuse3','violetred2'),
+                    numbers=TRUE, sortVars=TRUE,
+                    labels=names(Protein), cex.axis=.8,
+                    gap=2, ylab=c("Missing data","Pattern"))
+```
+
+
+## 1.3 impute missing values
+```{r}
+install.packages("mice")
+library(mice)
+```
+
+```{r}
+imputed_Data <- mice(Protein, m=5, maxit = 50, method = 'cart', seed = 500)
+```
+
+```{r}
+# This the cleaned dataset
+clean_data <- complete(imputed_Data,2)
+```
+
+```{r}
+attach(clean_data)
+```
+
+```{r}
+#write.csv(clean_data,"clean_data.csv", row.names = FALSE)
+```
+
+
+## 1.4 Finalize Covid Recovery datasets
+```{r}
+Protein_Recovered = clean_data[,c(2:24,29)]
+```
+
+
+# 2. Feature Selection
+
+## 2.1 Features Selection using Bortua
+
+
+```{r}
+# for Recovered
+`%notin%` <- Negate(`%in%`)
+boruta_output <- Boruta(Recovered ~ ., data=Protein_Recovered, doTrace=2)
+boruta_signif <- names(boruta_output$finalDecision[boruta_output$finalDecision %in% c("Confirmed", "Tentative")])
+boruta_not_signif <- names(boruta_output$finalDecision[boruta_output$finalDecision %notin% c("Confirmed", "Tentative")])
+print(boruta_signif)
+print(boruta_not_signif)
+plot(boruta_output, cex.axis=.7, las=2, xlab="", main="Variable Importance for Recovered Rate") 
+
+```
+ 
+ 
+## 2.2 Features Selection using Random Forest
+
+```{r}
+# for Recovered
+set.seed(0)
+Recovered_Forest=randomForest(Recovered ~. #put all the x predictors here
+                        , ntree=500, data=Protein_Recovered, importance=TRUE, na.action = na.omit)
+varImpPlot(Recovered_Forest)
+
+```
+```{r}
+round(importance(Recovered_forest),2)
+```
+ 
+ 
+ 
+## 2.4 Select predictors
+
+```{r}
+colnames(Protein_Recovered)
+```
+
+
+```{r}
+Protein_Recovered_selected = subset(Protein_Recovered,select=c(Recovered,Animal.Products,Vegetable.Oils,Animal.fats,Vegetal.Products,Fish..Seafood,Milk...Excluding.Butter,Oilcrops,Eggs))
+```
+
+```{r}
+summary()
+```
+
+```{r}
+colnames(Protein_Recovered_selected)
+```
+
+
+```{r}
+# summary statistics for selected features
+print(summary(Protein_Recovered_selected$Animal.Products))
+print(summary(Protein_Recovered_selected$Vegetable.Oils))
+print(summary(Protein_Recovered_selected$Animal.fats))
+print(summary(Protein_Recovered_selected$Vegetal.Products))
+print(summary(Protein_Recovered_selected$Fish..Seafood))
+print(summary(Protein_Recovered_selected$Milk...Excluding.Butter))
+print(summary(Protein_Recovered_selected$Oilcrops))
+print(summary(Protein_Recovered_selected$Eggs))
+```
+
+
+# 3. Data Exploration and Description
+
+## 3.1 Data Visualization
+
+### Histograms
+
+```{r}
+# for Recovered
+# for (i in colnames(Protein_Recovered_selected)){
+#   boxplot(Protein_Recovered_selected[[i]],col="cadetblue3",main=paste("Boxplot of", names(Protein_Recovered_selected[i])),xlab = paste(names(Protein_Recovered_selected[i])))
+#   hist(Protein_Recovered_selected[[i]],col="cadetblue3",main=paste("Histogram of", names(Protein_Recovered_selected[i])),xlab = paste(names(Protein_Recovered_selected[i])))
+# }
+
+```
+
+
+```{r}
+# Matrix of histograms for features
+colnames(Protein_Recovered_selected)
+gg1=ggplot(Protein_Recovered_selected, aes(x = Animal.Products),fill='Black') + geom_histogram(color = "black", fill='dodgerblue3',binwidth=2.5)+
+  labs( x = "Animal Products", y = "Frequency")+
+  theme_bw()+scale_fill_manual(name = "Consumption Level", values = c("#92C8EB")) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), legend.text = element_text(size = 12), axis.title = element_text(size = 12, face = "bold"))
+gg1
+
+gg2=ggplot(Protein_Recovered_selected, aes(x = Vegetable.Oils),fill='Black') + geom_histogram(color = "black", fill='dodgerblue3',binwidth=0.01)+
+  labs( x = "Vegetable Oils", y = "Frequency")+
+  theme_bw()+scale_fill_manual(name = "Consumption Level", values = c("#92C8EB")) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), legend.text = element_text(size = 12), axis.title = element_text(size = 12, face = "bold"))
+gg2
+
+gg3=ggplot(Protein_Recovered_selected, aes(x = Animal.fats),fill='Black') + geom_histogram(color = "black", fill='dodgerblue3',binwidth=0.05)+
+  labs( x = "Animal fats", y = "Frequency")+
+  theme_bw()+scale_fill_manual(name = "Consumption Level", values = c("#92C8EB")) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), legend.text = element_text(size = 12), axis.title = element_text(size = 12, face = "bold"))
+gg3
+
+gg4=ggplot(Protein_Recovered_selected, aes(x = Vegetal.Products),fill='Black') + geom_histogram(color = "black", fill='dodgerblue3',binwidth=2.5)+
+  labs( x = "Vegetal Products", y = "Frequency")+
+  theme_bw()+scale_fill_manual(name = "Consumption Level", values = c("#92C8EB")) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), legend.text = element_text(size = 12), axis.title = element_text(size = 12, face = "bold"))
+gg4  
+
+gg5=ggplot(Protein_Recovered_selected, aes(x = Fish..Seafood),fill='Black') + geom_histogram(color = "black", fill='dodgerblue3',binwidth=1)+
+  labs( x = "Seafood", y = "Frequency")+
+  theme_bw()+scale_fill_manual(name = "Consumption Level", values = c("#92C8EB")) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), legend.text = element_text(size = 12), axis.title = element_text(size = 12, face = "bold"))
+gg5
+
+gg6=ggplot(Protein_Recovered_selected, aes(x = Milk...Excluding.Butter),fill='Black') + geom_histogram(color = "black", fill='dodgerblue3',binwidth=1)+
+  labs( x = "Milk - Excluding Butter", y = "Frequency")+
+  theme_bw()+scale_fill_manual(name = "Consumption Level", values = c("#92C8EB")) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), legend.text = element_text(size = 12), axis.title = element_text(size = 12, face = "bold"))
+gg6
+
+gg7=ggplot(Protein_Recovered_selected, aes(x = Oilcrops),fill='Black') + geom_histogram(color = "black", fill='dodgerblue3',binwidth=1)+
+  labs( x = "Oilcrops", y = "Frequency")+
+  theme_bw()+scale_fill_manual(name = "Consumption Level", values = c("#92C8EB")) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), legend.text = element_text(size = 12), axis.title = element_text(size = 12, face = "bold"))
+gg7
+
+gg8=ggplot(Protein_Recovered_selected, aes(x = Eggs),fill='Black') + geom_histogram(color = "black", fill='dodgerblue3',binwidth=0.35)+
+  labs( x = "Eggs", y = "Frequency")+
+  theme_bw()+scale_fill_manual(name = "Consumption Level", values = c("#92C8EB")) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), legend.text = element_text(size = 12), axis.title = element_text(size = 12, face = "bold"))
+gg8
+
+library(gridExtra) 
+
+figure <- grid.arrange(gg1, gg2, gg3,gg4,gg5,gg6,gg7,gg8,
+                    
+                    ncol = 2, nrow = 4, top= textGrob('Distrubution of Each Data Column',gp=gpar(fontface="bold",fontsize=16))
+                    )
+
+figure
+```
+```{r}
+# Histogram for Target variable
+gg9=ggplot(Protein_Recovered_selected, aes(x = Recovered),fill='black') + geom_histogram(color = "Black",fill='dodgerblue3',binwidth=0.4)+
+  labs( x = "Recovered Rate (% population)", y = "Frequency", title='Target Variable Distribution')+
+  theme_bw()+scale_fill_manual(name = "Consumption Level", values = c("#92C8EB")) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), legend.text = element_text(size = 12), axis.title = element_text(size = 12, face = "bold"))
+gg9
+```
+
+### Density Plot
+```{r}
+gg1=ggplot(Protein_Recovered_selected, aes(x = Animal.Products),fill='Black') + geom_density(color = "black", fill='dodgerblue3')+
+  labs( x = "Animal Products", y = "Density")+
+  theme_bw()+scale_fill_manual(name = "Consumption Level", values = c("#92C8EB")) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), legend.text = element_text(size = 12), axis.title = element_text(size = 12, face = "bold"))
+gg1
+
+gg2=ggplot(Protein_Recovered_selected, aes(x = Vegetable.Oils),fill='Black') + geom_density(color = "black", fill='dodgerblue3')+
+  labs( x = "Vegetable Oils", y = "Density")+
+  theme_bw()+scale_fill_manual(name = "Consumption Level", values = c("#92C8EB")) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), legend.text = element_text(size = 12), axis.title = element_text(size = 12, face = "bold"))
+gg2
+
+gg3=ggplot(Protein_Recovered_selected, aes(x = Animal.fats),fill='Black') + geom_density(color = "black", fill='dodgerblue3')+
+  labs( x = "Animal fats", y = "Density")+
+  theme_bw()+scale_fill_manual(name = "Consumption Level", values = c("#92C8EB")) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), legend.text = element_text(size = 12), axis.title = element_text(size = 12, face = "bold"))
+gg3
+
+gg4=ggplot(Protein_Recovered_selected, aes(x = Vegetal.Products),fill='Black') + geom_density(color = "black", fill='dodgerblue3')+
+  labs( x = "Vegetal Products", y = "Density")+
+  theme_bw()+scale_fill_manual(name = "Consumption Level", values = c("#92C8EB")) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), legend.text = element_text(size = 12), axis.title = element_text(size = 12, face = "bold"))
+gg4  
+
+gg5=ggplot(Protein_Recovered_selected, aes(x = Fish..Seafood),fill='Black') + geom_density(color = "black", fill='dodgerblue3',)+
+  labs( x = "Seafood", y = "Density")+
+  theme_bw()+scale_fill_manual(name = "Consumption Level", values = c("#92C8EB")) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), legend.text = element_text(size = 12), axis.title = element_text(size = 12, face = "bold"))
+gg5
+
+gg6=ggplot(Protein_Recovered_selected, aes(x = Milk...Excluding.Butter),fill='Black') + geom_density(color = "black", fill='dodgerblue3')+
+  labs( x = "Milk - Excluding Butter", y = "Density")+
+  theme_bw()+scale_fill_manual(name = "Consumption Level", values = c("#92C8EB")) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), legend.text = element_text(size = 12), axis.title = element_text(size = 12, face = "bold"))
+gg6
+
+gg7=ggplot(Protein_Recovered_selected, aes(x = Oilcrops),fill='Black') + geom_density(color = "black", fill='dodgerblue3')+
+  labs( x = "Oilcrops", y = "Density")+
+  theme_bw()+scale_fill_manual(name = "Consumption Level", values = c("#92C8EB")) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), legend.text = element_text(size = 12), axis.title = element_text(size = 12, face = "bold"))
+gg7
+
+gg8=ggplot(Protein_Recovered_selected, aes(x = Eggs),fill='Black') + geom_density(color = "black", fill='dodgerblue3')+
+  labs( x = "Eggs", y = "Density")+
+  theme_bw()+scale_fill_manual(name = "Consumption Level", values = c("#92C8EB")) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), legend.text = element_text(size = 12), axis.title = element_text(size = 12, face = "bold"))
+gg8
+
+library(gridExtra) 
+
+figure <- grid.arrange(gg1, gg2, gg3,gg4,gg5,gg6,gg7,gg8,
+                    
+                    ncol = 2, nrow = 4, top= textGrob('Distrubution of Each Data Column',gp=gpar(fontface="bold",fontsize=16))
+                    )
+
+figure
+```
+```{r}
+# Density for Target variable
+gg9=ggplot(Protein_Recovered_selected, aes(x = Recovered),fill='black') + geom_density(color = "Black",fill='dodgerblue3')+
+  labs( x = "Recovered", y = "Density", title='Target Variable Distribution')+
+  theme_bw()+scale_fill_manual(name = "Consumption Level", values = c("#92C8EB")) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), legend.text = element_text(size = 12), axis.title = element_text(size = 12, face = "bold"))
+gg9
+```
+
+
+### Box Plot
+```{r}
+gg1=ggplot(Protein_Recovered_selected, aes(x = Animal.Products),fill='Black') + geom_boxplot(color = "black", fill='dodgerblue3')+
+  labs( x = "Animal Products", y = "")+
+  theme_bw()+scale_fill_manual(name = "Consumption Level", values = c("#92C8EB")) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), legend.text = element_text(size = 12), axis.title = element_text(size = 12, face = "bold"))
+gg1
+
+gg2=ggplot(Protein_Recovered_selected, aes(x = Vegetable.Oils),fill='Black') + geom_boxplot(color = "black", fill='dodgerblue3')+
+  labs( x = "Vegetable Oils", y = "")+
+  theme_bw()+scale_fill_manual(name = "Consumption Level", values = c("#92C8EB")) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), legend.text = element_text(size = 12), axis.title = element_text(size = 12, face = "bold"))
+gg2
+
+gg3=ggplot(Protein_Recovered_selected, aes(x = Animal.fats),fill='Black') + geom_boxplot(color = "black", fill='dodgerblue3')+
+  labs( x = "Animal fats", y = "")+
+  theme_bw()+scale_fill_manual(name = "Consumption Level", values = c("#92C8EB")) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), legend.text = element_text(size = 12), axis.title = element_text(size = 12, face = "bold"))
+gg3
+
+gg4=ggplot(Protein_Recovered_selected, aes(x = Vegetal.Products),fill='Black') + geom_boxplot(color = "black", fill='dodgerblue3')+
+  labs( x = "Vegetal Products", y = "")+
+  theme_bw()+scale_fill_manual(name = "Consumption Level", values = c("#92C8EB")) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), legend.text = element_text(size = 12), axis.title = element_text(size = 12, face = "bold"))
+gg4  
+
+gg5=ggplot(Protein_Recovered_selected, aes(x = Fish..Seafood),fill='Black') + geom_boxplot(color = "black", fill='dodgerblue3',)+
+  labs( x = "Seafood", y = "")+
+  theme_bw()+scale_fill_manual(name = "Consumption Level", values = c("#92C8EB")) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), legend.text = element_text(size = 12), axis.title = element_text(size = 12, face = "bold"))
+gg5
+
+gg6=ggplot(Protein_Recovered_selected, aes(x = Milk...Excluding.Butter),fill='Black') + geom_boxplot(color = "black", fill='dodgerblue3')+
+  labs( x = "Milk - Excluding Butter", y = "")+
+  theme_bw()+scale_fill_manual(name = "Consumption Level", values = c("#92C8EB")) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), legend.text = element_text(size = 12), axis.title = element_text(size = 12, face = "bold"))
+gg6
+
+gg7=ggplot(Protein_Recovered_selected, aes(x = Oilcrops),fill='Black') + geom_boxplot(color = "black", fill='dodgerblue3')+
+  labs( x = "Oilcrops", y = "")+
+  theme_bw()+scale_fill_manual(name = "Consumption Level", values = c("#92C8EB")) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), legend.text = element_text(size = 12), axis.title = element_text(size = 12, face = "bold"))
+gg7
+
+gg8=ggplot(Protein_Recovered_selected, aes(x = Eggs),fill='Black') + geom_boxplot(color = "black", fill='dodgerblue3')+
+  labs( x = "Eggs", y = "")+
+  theme_bw()+scale_fill_manual(name = "Consumption Level", values = c("#92C8EB")) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), legend.text = element_text(size = 12), axis.title = element_text(size = 12, face = "bold"))
+gg8
+
+library(gridExtra) 
+
+figure <- grid.arrange(gg1, gg2, gg3,gg4,gg5,gg6,gg7,gg8,
+                    
+                    ncol = 2, nrow = 4, top= textGrob('Distrubution of Each Data Column',gp=gpar(fontface="bold",fontsize=16))
+                    )
+
+figure
+```
+
+
+```{r}
+# BoxPlot for Target variable
+gg9=ggplot(Protein_Recovered_selected, aes(x = Recovered),fill='black') + geom_boxplot(color = "Black",fill='dodgerblue3')+
+  labs( x = "Recovered", y = "", title='Target Variable Distribution')+
+  theme_bw()+scale_fill_manual(name = "Consumption Level", values = c("#92C8EB")) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), legend.text = element_text(size = 12), axis.title = element_text(size = 12, face = "bold"))
+gg9
+```
+
+
+
+
+```{r}
+for (i in colnames(Protein_Recovered_selected)){print(i)}
+```
+
+
+## 3.2 Skewness
+
+```{r}
+colnames(Protein_Recovered_selected)
+```
+
+```{r}
+attach(Protein_Recovered_selected)
+```
+
+
+```{r}
+#Skewness
+
+skewness_data = data.frame(
+  variables = colnames(Protein_Recovered_selected),
+  skewness = round(c(skewness(Recovered),skewness(Animal.Products),skewness(Vegetable.Oils),skewness(Animal.fats),skewness(Vegetal.Products),skewness(Fish..Seafood),skewness(Milk...Excluding.Butter),skewness(Oilcrops),skewness(Eggs)),2)
+)
+
+
+skewness_data$type=ifelse(
+  
+  ((skewness_data$skewness<0.5) &  (skewness_data$skewness>-0.5)),"Symmetrical",
+  ifelse(((skewness_data$skewness>1)|(skewness_data$skewness<=-1)),"Highly Skewed",
+  "Moderately Skewed")
+  
+  )
+
+                
+print(skewness_data)
+
+```
+
+## 3.3 Colinearity Test (collinearity and correlation)
+
+### 1st Way - Correlation Matrix and Heat map
+
+```{r}
+corr_matrix = cor(Protein_Recovered_selected[,-c(1)], method = c("pearson"))
+round(corr_matrix,2)
+```
+
+```{r}
+# heap map #1
+corrplot(corr_matrix)
+# melted_cormat <- melt(X.cor)
+# head(melted_cormat)
+```
+
+
+```{r}
+
+# Heap map #2
+# melted_corr_matrix_Recovered <- melt(cor(Protein_Recovered_selected, method = c("pearson")))
+# ggplot(data = melted_corr_matrix_Recovered,aes(Var1, Var2, fill = value))+
+#   geom_tile(color = "white")+
+#   scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+#                        midpoint = 0, limit = c(-1,1), space = "Lab", 
+#                        name="Pearson\nCorrelation") +
+#   theme_minimal()+ 
+#   theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+#                                    size = 12, hjust = 1))+
+#   coord_fixed()
+
+```
+
+### 2rd Way - VIF
+```{r}
+round(vif(lm(Recovered~.,data=Protein_Recovered_selected)),2)
+```
+
+```{r}
+# remove collinear predictors
+Protein_Recovered_nocoll = subset(Protein_Recovered_selected,select=-c(Vegetal.Products))
+```
+
+```{r}
+round(vif(lm(Recovered~.,data=Protein_Recovered_nocoll)),2)
+```
+
+
+## 3.4 Outlier Test (Bonferroni Test)
+```{r}
+# For Recovered
+outlierTest(lm(Recovered~., data=Protein_Recovered_nocoll))
+
+```
+
+```{r}
+# Remove outliers
+Protein_Recovered_nooutlier = Protein_Recovered_nocoll[-c(103),]
+```
+
+```{r}
+Protein_Recovered_final = Protein_Recovered_nooutlier
+```
+
+```{r}
+colnames(Protein_Recovered_final)
+```
+
+## 3.5 Data preparation for modelling
+
+### Log-Transformation
+
+```{r}
+# apply log transformation to target variable
+Protein_Recovered_trans = Protein_Recovered_final
+Protein_Recovered_trans$Recovered = log(Protein_Recovered_final$Recovered+1)
+# Protein_Recovered_trans$Vegetable.Oils = log(Protein_Recovered_final$Vegetable.Oils+1)
+# Protein_Recovered_trans$Animal.fats = log(Protein_Recovered_final$Animal.fats+1)
+# Protein_Recovered_trans$Fish..Seafood = log(Protein_Recovered_final$Fish..Seafood+1)
+# Protein_Recovered_trans$Oilcrops = log(Protein_Recovered_final$Oilcrops+1)
+
+```
+
+```{r}
+# re-check skewness
+for (i in colnames(Protein_Recovered_trans)){
+  boxplot(Protein_Recovered_trans[[i]],col="cadetblue3",main=paste("Boxplot of", names(Protein_Recovered_trans[i])),xlab = paste(names(Protein_Recovered_trans[i])))
+  hist(Protein_Recovered_trans[[i]],col="cadetblue3",main=paste("Histogram of", names(Protein_Recovered_trans[i])),xlab = paste(names(Protein_Recovered_trans[i])))
+}
+```
+
+
+### Train-test Split
+
+```{r}
+require(caTools)
+set.seed(0)
+sample = sample.split(Protein_Recovered_trans$Recovered, SplitRatio = .8)
+Protein_train = subset(Protein_Recovered_trans, sample == TRUE)
+Protein_test  = subset(Protein_Recovered_trans, sample == FALSE)
+```
+
+
+
+# 4. Regression Models
+
+## 4.1 Decision Tree
+
+```{r}
+install.packages("tree")
+library(tree)
+install.packages("rpart.plot")
+library(rpart.plot)
+```
+
+### Decision Tree for regression
+
+```{r}
+# Start with a overfitted tree
+set.seed(0)
+myoverfittedtree=rpart(Recovered~., data=Protein_train, control=rpart.control(cp=0.0000001))
+plotcp(myoverfittedtree)
+```
+
+```{r}
+# Find the otimal CP
+opt_cp=myoverfittedtree$cptable[which.min(myoverfittedtree$cptable[,"xerror"]),"CP"]
+opt_cp
+```
+
+
+```{r}
+# Grow the optimal tree
+set.seed(0)
+mybesttree=rpart(Recovered~., data=Protein_train,control=rpart.control(cp=opt_cp))
+summary(mybesttree)
+```
+
+```{r}
+# visualize the tree
+rpart.plot(mybesttree)
+```
+
+```{r}
+# Calculate MSE (with inverse transformation)
+predicted_Recovered=predict(mybesttree, newdata=Protein_test)
+mean(((exp(predicted_Recovered)-1) - (exp(Protein_test$Recovered)-1))^2)
+```
+
+### Decision Tree for data interpretation (built with the whole dataset)
+
+```{r}
+# Start with a overfitted tree
+set.seed(0)
+myoverfittedtree2=rpart(Recovered~., data=Protein_Recovered_trans, control=rpart.control(cp=0.0000001))
+plotcp(myoverfittedtree2)
+```
+
+```{r}
+# Find the otimal CP
+opt_cp2=myoverfittedtree2$cptable[which.min(myoverfittedtree2$cptable[,"xerror"]),"CP"]
+opt_cp2
+```
+
+```{r}
+# Grow the optimal tree
+set.seed(0)
+mybesttree2=rpart(Recovered~., data=Protein_Recovered_trans,control=rpart.control(cp=opt_cp2))
+summary(mybesttree2)
+```
+
+```{r}
+# visualize the tree
+rpart.plot(mybesttree2)
+```
+
+
+## 4.2 Random Forest
+
+### Grow a random forest and OOB test
+```{r}
+set.seed(0)
+myforest=randomForest(Recovered~., data=Protein_train,ntree=440,importance = TRUE,na.action = na.omit)
+myforest
+```
+
+### Calculate MSE (with inverse transformation)
+
+```{r}
+predicted_Recovered=predict(myforest, newdata=Protein_test)
+mean(((exp(predicted_Recovered)-1) - (exp(Protein_test$Recovered)-1))^2)
+```
+
+## 4.3 Gradient Boosting
+
+### Build a boosted forest
+```{r}
+set.seed (0)
+boosted=gbm(Recovered~., data=Protein_train,distribution= "gaussian",n.trees=430, interaction.depth=3)
+summary(boosted)
+```
+
+### Calculate MSE
+```{r}
+predicted_Recovered=predict(boosted, newdata=Protein_test, n.trees=430)
+mean(((exp(predicted_Recovered)-1) - (exp(Protein_test$Recovered)-1))^2)
+```
+
+
+# 5. Principal Component Analysis
+
+## 5.1 Categorize Recovery Rate
+
+```{r}
+summary(Protein_Recovered_final$Recovered)
+```
+
+
+```{r}
+Protein_Recovered_final = Protein_Recovered_final %>% mutate(Recovered_Category =
+                     case_when(Recovered <= 0.5 ~ "Low Recovery Rate", 
+                               Recovered <= 3 ~ "Medium Recovery Rate",
+                               Recovered > 3  ~ "High Recovery Rate")
+)
+```
+
+
+## 5.2 Apply PCA
+
+```{r}
+pca=prcomp(Protein_Recovered_final[,-c(1,9)], scale=TRUE)
+pca
+```
+
+```{r}
+pcaplot = autoplot(pca, data = Protein_Recovered_final[,-c(1,9)], loadings = TRUE, loadings.label = TRUE, col=ifelse(Protein_Recovered_final$Recovered_Category == "Low Recovery Rate", "red", ifelse(Protein_Recovered_final$Recovered_Category == "High Recovery Rate","green3", "blue")))
+pcaplot
+```
+
+```{r}
+pve=(pca$sdev^2)/sum(pca$sdev^2)
+par(mfrow=c(1,2))
+plot(pve, ylim=c(0,1))
+plot(cumsum(pve), ylim=c(0,1))
+```
+
+
+
+
+# 6. Extension
+
+```{r}
+install.packages('countrycode')
+library(countrycode)
+```
+
+```{r}
+Protein_Recovered_extension = clean_data[,c(1:24,29)]
+```
+
+```{r}
+Protein_Recovered_extension$landmass <- countrycode(sourcevar = Protein_Recovered_extension[, "Country"],
+                             origin = 'country.name',
+                             destination = "continent")
+glimpse(Protein_Recovered_extension)
+```
+
+
+```{r}
+Protein_Recovered_agg = aggregate(Protein_Recovered_extension[,-c(1,26)], by=list(landmass=Protein_Recovered_extension$landmass), FUN=sum)
+Protein_Recovered_agg
+colnames(Protein_Recovered_agg)
+```
+```{r}
+Protein_Recovered_agg_selected =subset(Protein_Recovered_agg,select=c(landmass,Recovered,Animal.Products,Vegetable.Oils,Animal.fats,Vegetal.Products,Fish..Seafood,Milk...Excluding.Butter,Oilcrops,Eggs))
+Protein_Recovered_agg_selected
+```
+
+```{r}
+colnames(Protein_Recovered_agg_selected)
+```
+
+```{r}
+write.csv(Protein_Recovered_agg_selected,"aggregation.csv", row.names = FALSE)
+```
+
+
+
+
+
+
+
+
+
+
+
+
